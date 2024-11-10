@@ -20,19 +20,6 @@ from dash.dependencies import Output, Input, State
 import plotly.graph_objs as go
 import dash_bootstrap_components as dbc
 
-#빗썸임; 캡스톤이랑 무관
-# import json
-
-# # 저장할 데이터 (파이썬 딕셔너리 형식)
-# data = {
-#     "key": "2ee900cdc875b0e13def9bf5d042b58519d61a18befc0e",
-#     "secret": "ZTQ4NDA1OWVkODU2M2M5ZDA1YzRjMTdkYjllMDRjOWY5ZGYwZDU0M2JiOGUxZGQyMWQxOWJiZjgwYWIxMA=="
-# }
-
-# # JSON 파일에 데이터 저장
-# with open('./bithumb/api.json', 'w') as json_file:
-#     json.dump(data, json_file, indent=4)  # indent=4는 가독성을 위한 옵션
-
 # 글로벌 변수 및 락 정의
 data_updated = False  # 데이터 업데이트 플래그
 data_lock = threading.Lock()  # 쓰레드 안전성을 위한 락
