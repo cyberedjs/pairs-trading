@@ -2,6 +2,7 @@
 
 ## 참고사항
 - 데이터는 google drive 통해서 다운로드
+  - https://drive.google.com/file/d/1y4iplWiMXbKFb-9pqofR3D4i1czDgPB2/view?usp=sharing
 - 4번 전까지는 데이터 다운 받는 코드라 돌릴 필요 없음
 - 같은 데이터로 분석을 해야하기 때문에 우선 제공하는 데이터로 진행
 - 유니버스 확정하면 (예) 거래량 상위 100개 등) 그 때 다시 수집해서 검증할 예정
