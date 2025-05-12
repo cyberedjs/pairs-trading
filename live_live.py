@@ -17,6 +17,7 @@ import time
 import json
 import os
 import numba
+from threading import Lock
 
 pd.options.mode.chained_assignment = None
 
@@ -43,6 +44,10 @@ zscore_data = {
     'zscore_st': {}
 }
 
+# 전역 변수로 데이터 저장소 추가
+price_data = {}
+data_lock = Lock()
+
 def update_zscore_data(pair, zscore, zscore_st):
     """z-score 데이터를 업데이트하는 함수"""
     current_time = datetime.utcnow()
@@ -68,178 +73,156 @@ def update_zscore_data(pair, zscore, zscore_st):
     if len(zscore_data['zscore_st'][pair]) > 1000:
         zscore_data['zscore_st'][pair].pop(0)
 
-def initialize():
+def collect_data(symbol, data_dir=DATA_DIR):
+    """데이터 수집 함수: 파일이 없으면 6개월치 데이터를 수집하고, 있으면 마지막 인덱스부터 이어서 수집"""
     try:
-        logging.info("초기화 프로세스 시작...")
+        file_path = os.path.join(data_dir, f"{symbol}.csv")
+        current_time = int(time.time() * 1000)
         
-        # Step 1: 모든 선물 종목 가져오기
-        exchange_info = client.futures_exchange_info()
-        symbols = [s['symbol'] for s in exchange_info['symbols'] if (s['status'] == 'TRADING') and (s['symbol'][-4:] == 'USDT')]
-        logging.info(f"총 선물 종목 수: {len(symbols)}")
-        logging.info(f"처리할 종목 목록: {symbols[:5]}... (총 {len(symbols)}개)")
-
-        current_time = int(time.time() * 1000)  # 현재 시간을 밀리초로 변환
-        start = current_time - (6 * 30 * 24 * 60 * 60 * 1000)  # 대략 6개월 전 타임스탬프
-        logging.info(f"데이터 수집 시작 시간: {datetime.fromtimestamp(start/1000)}")
-
-        # 다중 스레드를 이용한 데이터 수집
-        logging.info("병렬 데이터 수집 시작...")
-        with parallel_backend("threading", n_jobs=-1):
-            results = Parallel(verbose=1)(
-                delayed(collect_data)(symbol, start) for symbol in symbols
+        # 파일이 존재하는 경우: 마지막 인덱스부터 이어서 수집
+        if os.path.exists(file_path):
+            df_existing = pd.read_csv(
+                file_path,
+                index_col='timestamp',
+                parse_dates=True,
+                date_parser=lambda x: pd.to_datetime(x, format='%Y-%m-%d %H:%M:%S')
             )
+            last_time = df_existing.index[-1]
             
-            for symbol, data in zip(symbols, results):
-                if not data.empty:
-                    file_path = os.path.join(DATA_DIR, f"{symbol}.csv")
-                    data.to_csv(file_path)
-                    logging.info(f"{symbol}의 데이터를 저장했습니다. (데이터 크기: {len(data)} 행)")
-                else:
-                    logging.warning(f"{symbol}의 데이터를 수집하지 못했습니다.")
+            # 마지막 업데이트로부터 5분이 지났는지 확인
+            if int(time.time() * 1000) - int(last_time.timestamp() * 1000) < 300000:
+                logging.info(f"{symbol}: 최신 데이터 유지 중")
+                return True
+                
+            start_time = int(last_time.timestamp() * 1000)
+            logging.info(f"{symbol}: 마지막 데이터 시점({last_time})부터 이어서 수집")
+        else:
+            # 파일이 없는 경우: 6개월치 데이터 수집
+            start_time = current_time - (6 * 30 * 24 * 60 * 60 * 1000)  # 6개월 전
+            logging.info(f"{symbol}: 6개월치 데이터 수집 시작 ({datetime.fromtimestamp(start_time/1000)})")
         
-        logging.info("초기화 프로세스 완료")
+        # 데이터 수집
+        all_klines = []
+        current_start = start_time
+        
+        while current_start < current_time:
+            try:
+                klines = client.futures_klines(
+                    symbol=symbol,
+                    interval='5m',
+                    startTime=current_start,
+                    limit=1000
+                )
+                
+                if not klines:
+                    break
+                    
+                all_klines.extend(klines)
+                current_start = klines[-1][0] + 1
+                time.sleep(1)  # API 제한 고려
+                
+            except BinanceAPIException as e:
+                if e.code == -1021:  # 타임스탬프 오류
+                    logging.warning(f"{symbol} 타임스탬프 오류, 다음 요청으로 진행")
+                    current_start += 1000 * 5 * 60 * 1000
+                    time.sleep(1)
+                    continue
+                else:
+                    raise e
+        
+        if all_klines:
+            # 새로운 데이터를 데이터프레임으로 변환
+            df_new = pd.DataFrame(all_klines, columns=[
+                'timestamp', 'open', 'high', 'low', 'close', 'volume',
+                'close_time', 'quote_volume', 'trades', 'taker_buy_base',
+                'taker_buy_quote', 'ignore'
+            ])
+            
+            # 데이터 타입 변환
+            df_new['timestamp'] = pd.to_datetime(df_new['timestamp'], unit='ms')
+            for col in ['open', 'high', 'low', 'close', 'volume']:
+                df_new[col] = pd.to_numeric(df_new[col], errors='coerce')
+            
+            # 필요한 컬럼만 선택
+            df_new = df_new[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
+            df_new.set_index('timestamp', inplace=True)
+            
+            # 기존 데이터와 새로운 데이터 병합
+            if os.path.exists(file_path):
+                df_updated = pd.concat([df_existing, df_new])
+                df_updated = df_updated[~df_updated.index.duplicated(keep='last')]  # 중복 제거
+                df_updated = df_updated.sort_index()  # 시간순 정렬
+            else:
+                df_updated = df_new
+            
+            # CSV 파일로 저장
+            df_updated.to_csv(file_path, date_format='%Y-%m-%d %H:%M:%S')
+            logging.info(f"{symbol}의 데이터를 저장했습니다. (새로운 데이터: {len(df_new)} 행)")
+            return True
+        else:
+            logging.warning(f"{symbol}의 새로운 데이터가 없습니다.")
+            return False
+            
+    except Exception as e:
+        logging.error(f"{symbol} 데이터 수집 중 오류 발생: {e}")
+        return False
+
+def get_valid_symbols(data_dir=DATA_DIR):
+    """과거 6개월간의 데이터가 있는 종목들을 반환"""
+    try:
+        symbols = []
+        six_months_ago = datetime.utcnow() - timedelta(days=180)
+        required_length = int(180 * 24 * 12 * 0.5)  # 6개월 * 24시간 * 12 (5분봉) * 0.5 = 절반 이상
+
+        # 모든 USDT 선물 심볼 가져오기
+        exchange_info = client.futures_exchange_info()
+        all_symbols = [s['symbol'] for s in exchange_info['symbols'] if (s['status'] == 'TRADING') and (s['symbol'][-4:] == 'USDT')]
+        
+        for symbol in all_symbols:
+            file_path = os.path.join(data_dir, f"{symbol}.csv")
+            if os.path.exists(file_path):
+                try:
+                    df = pd.read_csv(
+                        file_path,
+                        index_col='timestamp',
+                        parse_dates=True,
+                        date_parser=lambda x: pd.to_datetime(x, format='%Y-%m-%d %H:%M:%S')
+                    )
+                    
+                    # 6개월 이상의 데이터가 있는지 확인
+                    if df.index.min() < six_months_ago:
+                        # 6개월간의 데이터를 사용하여 평균 거래대금 계산
+                        recent_df = df.loc[df.index >= six_months_ago]
+                        if len(recent_df) >= required_length:
+                            symbols.append(symbol)
+                except Exception as e:
+                    logging.error(f"{symbol} 데이터 검증 중 오류 발생: {e}")
+                    continue
+
+        logging.info(f"유효한 종목 개수: {len(symbols)}")
+        return symbols
         
     except Exception as e:
-        logging.error(f"초기화 중 오류 발생: {e}")
+        logging.error(f"유효한 종목 선정 중 오류 발생: {e}")
+        return []
+
+def update_data(data_dir=DATA_DIR):
+    """모든 심볼에 대해 데이터 수집/업데이트 수행"""
+    try:
+        exchange_info = client.futures_exchange_info()
+        symbols = [s['symbol'] for s in exchange_info['symbols'] if (s['status'] == 'TRADING') and (s['symbol'][-4:] == 'USDT')]
+        logging.info(f"업데이트할 심볼 개수: {len(symbols)}")
+        
+        for symbol in symbols:
+            collect_data(symbol, data_dir)
+            time.sleep(1)  # API 제한 고려
+                
+    except Exception as e:
+        logging.error(f"데이터 업데이트 중 오류 발생: {e}")
         logging.error(f"Error details: {str(e)}")
         logging.error(f"Error type: {type(e)}")
         import traceback
         logging.error(f"Traceback: {traceback.format_exc()}")
-
-# Slack에 메시지를 보내는 함수
-def send_message_to_slack(message):
-    # 메시지를 전송하기 위한 데이터 구성
-    payload = {
-        'text': message
-    }
-
-    slack_webhook_url = "https://hooks.slack.com/services/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"
-
-    # POST 요청을 통해 슬랙으로 메시지 전송
-    response = requests.post(slack_webhook_url, data=json.dumps(payload),
-                             headers={'Content-Type': 'application/json'})
-
-    # 요청 결과 확인
-    if response.status_code == 200:
-        logging.info("메시지가 슬랙으로 전송되었습니다.")
-    else:
-        logging.error(f"메시지 전송 실패: {response.status_code}")
-
-def get_binance_futures_5m(symbol, start_time, end_time=None, limit=1000):
-    """ 바이낸스 선물 5분봉 데이터를 수집하는 함수 """
-    params = {
-        'symbol': symbol,
-        'interval': '5m',  # 5분봉
-        'startTime': start_time,
-        'limit': limit
-    }
-    if end_time:
-        params['endTime'] = end_time
-
-    url = "https://fapi.binance.com/fapi/v1/klines"
-    
-    # API 요청
-    response = requests.get(url, params=params)
-    data = response.json()
-    
-    # 데이터프레임으로 변환
-    df = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 'close_time',
-                                     'quote_asset_volume', 'number_of_trades', 'taker_buy_base_asset_volume',
-                                     'taker_buy_quote_asset_volume', 'ignore'])
-    
-    # timestamp를 사람이 읽을 수 있는 시간으로 변환
-    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-    return df
-
-def collect_data(symbol, start):
-    """ 과거 6개월 데이터를 수집하는 함수 """
-    # 6개월 전의 타임스탬프 계산
-    current_time = int(time.time() * 1000)  # 현재 시간을 밀리초로 변환
-    # six_months_ago = current_time - (6 * 30 * 24 * 60 * 60 * 1000)  # 대략 6개월 전 타임스탬프
-    all_data = []
-
-    while current_time > start:
-
-        # 데이터를 요청하고 수집
-        df = get_binance_futures_5m(symbol=symbol, start_time=start)
-        
-        if df.empty:
-            break
-        
-        # 최신 데이터를 수집했으므로, 마지막 데이터의 타임스탬프를 사용해 이전 데이터를 가져옴
-        start = int(df['timestamp'].max().timestamp() * 1000) + 1  # 밀리초로 변환
-        all_data.append(df)
-        
-        # API 제한을 피하기 위해 잠시 대기
-        time.sleep(1)
-
-    # 전체 데이터를 하나의 데이터프레임으로 병합
-    all_data = pd.concat(all_data, ignore_index=True)
-    
-    return all_data
-
-# 상위 100개 종목 선정 함수
-def get_valid_symbols(data_dir=DATA_DIR):
-    """
-    과거 6개월간의 평균 거래대금을 기준으로 상위 100개 종목을 선정합니다.
-    6개월 데이터가 없는 종목은 제외됩니다.
-    """
-    symbols = []
-
-    six_months_ago = datetime.utcnow() - timedelta(days=180)
-
-    for file in os.listdir(data_dir):
-        if file.endswith('.csv'):
-            symbol = file.replace('.csv', '')
-            file_path = os.path.join(data_dir, file)
-            df = pd.read_csv(file_path, index_col='timestamp', parse_dates=True)
-            
-            # 6개월 이상의 데이터가 있는지 확인
-            if df.index.min() < six_months_ago:
-                # 6개월간의 데이터를 사용하여 평균 거래대금 계산
-                recent_df = df.loc[df.index >= six_months_ago]
-                required_length = int(180 * 24 * 12 * 0.8)  # 6개월 * 24시간 * 12 (5분봉) * 0.5 = 절반 이상
-                if len(recent_df) < required_length:
-                    continue  # 데이터가 충분하지 않으면 제외
-                symbols.append(symbol)
-
-    return symbols
-
-# 데이터 업데이트 함수
-def update_data(data_dir=DATA_DIR):
-
-    exchange_info = client.futures_exchange_info()
-    symbols = [s['symbol'] for s in exchange_info['symbols'] if (s['status'] == 'TRADING') and (s['symbol'][-4:] == 'USDT')]
-
-    logging.info(f"Symbol의 개수는 : {len(symbols)}")
-    
-    for symbol in symbols:
-
-        file_path = os.path.join(data_dir, f"{symbol}.csv")
-
-        if os.path.exists(file_path):
-
-            df_existing = pd.read_csv(file_path, index_col='timestamp', parse_dates=True)
-            last_time = df_existing.index[-1]
-
-            if int(time.time() * 1000) - int(last_time.timestamp() * 1000) < 300000:
-                logging.info(f"Symbol : {symbol}; UPDATED TO THE LATEST 5M")
-                continue
-
-            new_start_time = last_time + timedelta(minutes=5)
-            new_data = collect_data(symbol, int(new_start_time.timestamp() * 1000))
-            new_data = new_data.set_index('timestamp', drop=True)
-
-            if new_data.empty:
-                continue  # 데이터가 없으면 건너뜀
-
-            df_updated = pd.concat([df_existing, new_data]).drop_duplicates().sort_index()
-        else:
-            logging.error(f"{symbol}의 데이터가 존재하지 않아 제외됩니다.")
-            continue
-        
-        df_updated.to_csv(file_path)
-        logging.info(f"{symbol}의 데이터를 업데이트했습니다.")
 
 # PairSelector 클래스
 class PairSelector:
@@ -845,7 +828,7 @@ def real_time_execution():
                         all_prices[symbol_A] = float(ticker_A['price'])
                         logging.info(f"{symbol_A} 현재 가격: {all_prices[symbol_A]}")
                     if symbol_B not in all_prices:
-                        ticker_B = client.futures_symbol_ticker(symbol=symbol_B)
+                        ticker_B = client.futures_symbol_ticker(symbol=symbolB)
                         all_prices[symbol_B] = float(ticker_B['price'])
                         logging.info(f"{symbol_B} 현재 가격: {all_prices[symbol_B]}")
 
@@ -987,9 +970,8 @@ if __name__ == "__main__":
     # 1. 데이터 디렉토리의 CSV 파일 개수 확인
     csv_files = [f for f in os.listdir(DATA_DIR) if f.endswith('.csv')]
     
-    if len(csv_files) < 200:
-        logging.info("데이터 파일이 부족하여 초기화를 실행합니다.")
-        initialize()
+    logging.info("초기 데이터 수집 및 업데이트를 실행합니다.")
+    update_data()  # 모든 심볼에 대해 데이터 수집
     
     # 2. recurring_task 함수를 즉시 실행
     recurring_task()
@@ -999,8 +981,10 @@ if __name__ == "__main__":
     execution_thread.start()
 
     # 4. 스케줄러 설정 (매월 1일 00:00 UTC에 실행)
-    scheduler.add_job(recurring_task, 'cron', day=1, hour=0, minute=0)
-    scheduler.start()
+    if not scheduler.running:
+        scheduler.add_job(recurring_task, 'cron', day=1, hour=0, minute=0)
+        scheduler.start()
+        logging.info("스케줄러가 시작되었습니다.")
 
     # 5. 메인 스레드가 종료되지 않도록 유지
     try:
@@ -1008,3 +992,4 @@ if __name__ == "__main__":
             time.sleep(1)
     except KeyboardInterrupt:
         print("Trading bot을 종료합니다.")
+        scheduler.shutdown()  # 스케줄러 종료
