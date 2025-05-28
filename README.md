@@ -41,12 +41,13 @@
 - 5/15 : 210달러를 가지고 실거래 시작
 - 5/15 : exit condition을 만족해도 주문이 실행되지 않는 오류를 수정
 - 5/28 : 페어당 자본 업데이트 문제로 인한 Margin is insufficient 오류 수정
-- 5/15 ~ 5/28 실거래 결과 : 214 -> 222달러
-- 오류 수정하면서 증액, 시작 자본 = 827달러
+- 5/15 ~ 5/28 실거래 결과 : $213 -> $222 ($8.63 수익)
+- 오류 수정하면서 증액, 시작 자본 = $827
 
 ### 2차 실거래 로그 및 보완점 (추후 업데이트 예정)
 
-![image](https://github.com/user-attachments/assets/c5a6088e-bbb5-4d16-b22e-d0745b4be214)
+![image](https://github.com/user-attachments/assets/eac6755b-be7b-4eae-acc5-d8b1bd701de7)
+
 
 
 
