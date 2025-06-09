@@ -44,10 +44,12 @@
 - 5/15 ~ 5/28 실거래 결과 : $213 -> $222 ($8.63 수익)
 - 오류 수정하면서 증액, 시작 자본 = $827
 
-### 2차 실거래 로그 및 보완점 (추후 업데이트 예정)
+### 2차 실거래 로그 및 보완점 (계속 업데이트 예정, 6/10 기준 최신 업데이트)
+- 5/29 : 레버리지 1배 -> 3배로 변경
 
-![image](https://github.com/user-attachments/assets/eac6755b-be7b-4eae-acc5-d8b1bd701de7)
-
-
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/ba46d1cc-6c6c-4d3d-bdf4-e24bb2bbd302" width="200"/>
+  <img src="https://github.com/user-attachments/assets/ba8da705-efaf-43cc-8e12-dabb19fe0719" width="200"/>
+</p>
 
 
