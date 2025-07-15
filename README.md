@@ -37,20 +37,22 @@
 |   공적분   |          0.82  | 1.22 | -0.455
 |    빈도   | 3.99  | 3.11 | -0.028
 
-### 실거래 로그 및 보완점 (7/2 기준 최신 업데이트)
+### 실거래 로그 및 보완점 (7/16 기준 최신 업데이트)
 - 5/15 : 210달러를 가지고 실거래 시작
 - 5/15 : exit condition을 만족해도 주문이 실행되지 않는 오류를 수정
 - 5/28 : 페어당 자본 업데이트 문제로 인한 Margin is insufficient 오류 수정
 - 5/15 ~ 5/28 실거래 결과 : $213 -> $222 ($8.63 수익)
 - 오류 수정하면서 증액, 시작 자본 = $827
 - 5/29 : 레버리지 1배 -> 3배로 변경
+- *7월부터는 매매일지를 작성 중이며, 7월 16일 기준 누적 수익률 14%, daily mdd 1%
 - 7/2 : $1226에서 $1144 추가로 증액 => $2370
 - 7/2 : 텔레그램 봇을 통한 매매 시그널 및 로그 공유 기능 추가
+- 7/9 : 텔레그램 PNL 표시 로직 수정
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/ba46d1cc-6c6c-4d3d-bdf4-e24bb2bbd302" width="200"/>
-  <img src="https://github.com/user-attachments/assets/ba8da705-efaf-43cc-8e12-dabb19fe0719" width="200"/>
-  <img src="https://github.com/user-attachments/assets/8d6b4588-d709-46d8-b275-695ac4ed0b48" width="200"/>
+  <img src="https://github.com/user-attachments/assets/ba46d1cc-6c6c-4d3d-bdf4-e24bb2bbd302" width="200" height="1500"/>
+  <img src="https://github.com/user-attachments/assets/8d6b4588-d709-46d8-b275-695ac4ed0b48" width="200" height="1500"/>
+  <img src="https://github.com/user-attachments/assets/1f3ef3aa-ed95-4167-bfdf-b4f791e72e4a" width="200" height="1500"/>
 </p>
 
 
