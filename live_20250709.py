@@ -22,9 +22,9 @@ from threading import Lock
 pd.options.mode.chained_assignment = None
 
 # 텔레그램 봇 설정
-TELEGRAM_BOT_TOKEN = "7842369793:AAG-CZYk1ZZWmNmg6F9jvMYmazPJswAkqwo"
-CHAT_ID_1 = "-1002839146761"  # 모든 로그용
-CHAT_ID_2 = "-4831272867"  # 시그널만용 6262963211 <- 테스트용
+TELEGRAM_BOT_TOKEN = ""
+CHAT_ID_1 = ""  # 모든 로그용
+CHAT_ID_2 = ""  # 시그널만용
 
 def send_telegram_message(chat_id, message):
     """텔레그램으로 메시지를 전송하는 함수"""
